@@ -1,0 +1,19 @@
+:root {
+  --color-bg: #090909;
+  --color-surface: #141414;
+  --color-card: #fff4de;
+  --color-text: #fff8ef;
+  --color-card-text: #17110d;
+  --color-muted: #9c9a96;
+  --color-danger: #e33b32;
+  --color-danger-dark: #8f211d;
+  --color-border: #303030;
+  --color-accent: #f3d58d;
+  --radius-card: 8px;
+  --radius-button: 6px;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+}

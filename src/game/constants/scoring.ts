@@ -1,0 +1,9 @@
+export const SCORING = {
+  CALL_WIN: 2,
+  CALL_LOSE: -2,
+  FOLD: -1,
+  STAND_ALONE_SURVIVE: 2,
+  STAND_ALONE_FAIL: -2,
+  EVERYBODY_FOLDS: -2,
+  NO_ESCAPE_V1: 0,
+} as const;
