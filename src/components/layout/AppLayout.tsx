@@ -1,8 +1,12 @@
-import { NavLink, Outlet } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 export function AppLayout() {
+  const { pathname } = useLocation();
+  const isOnboardingPath =
+    pathname === "/" || pathname === "/create" || pathname === "/join" || pathname.startsWith("/room/");
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${isOnboardingPath ? " player-journey" : ""}`}>
       <header className="app-header">
         <NavLink to="/" className="brand">
           NO FOLD

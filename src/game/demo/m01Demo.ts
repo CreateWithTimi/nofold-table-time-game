@@ -29,6 +29,9 @@ export interface DemoState {
   noEscapeScenario: Scenario;
   viewerId: string;
   flow: DemoFlow;
+  defenseStartedAtMs: number | null;
+  standAloneDefenseStartedAtMs: number | null;
+  noEscapeDefenseStartedAtMs: number | null;
   outcome: CallFoldOutcome | null;
   selectedJudgeWinnerId: string | null;
   resultByPlayerId: Record<string, DemoResult>;
@@ -39,6 +42,7 @@ export type DemoAction =
   | { type: "RESET"; flow: DemoFlow }
   | { type: "SELECT_RESPONSE"; responseId: string }
   | { type: "LOCK_RESPONSE" }
+  | { type: "START_DEFENSE"; startedAtMs: number }
   | { type: "COMPLETE_DEFENSE" }
   | { type: "LOCK_CALL_FOLD"; decision: "CALL" | "FOLD" }
   | { type: "FACE_STAND_ALONE_TWIST" }
@@ -82,6 +86,9 @@ export function createM01DemoState(flow: DemoFlow = "NORMAL"): DemoState {
     noEscapeScenario: tableTroubleScenarios[1],
     viewerId: "timi",
     flow,
+    defenseStartedAtMs: null,
+    standAloneDefenseStartedAtMs: null,
+    noEscapeDefenseStartedAtMs: null,
     outcome: null,
     selectedJudgeWinnerId: null,
     resultByPlayerId: {},
@@ -101,12 +108,15 @@ export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState 
     case "LOCK_RESPONSE":
       return {
         ...state,
+        defenseStartedAtMs: null,
         round: {
           ...state.round,
           phase: GAME_PHASES.DEFENSE,
           playerStates: lockAllDemoResponses(state),
         },
       };
+    case "START_DEFENSE":
+      return { ...state, defenseStartedAtMs: state.defenseStartedAtMs ?? action.startedAtMs };
     case "COMPLETE_DEFENSE":
       return {
         ...state,
@@ -115,7 +125,11 @@ export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState 
     case "LOCK_CALL_FOLD":
       return resolveDemoCallFold(state, action.decision);
     case "FACE_STAND_ALONE_TWIST":
-      return { ...state, round: { ...state.round, phase: GAME_PHASES.STAND_ALONE_DEFENSE } };
+      return {
+        ...state,
+        standAloneDefenseStartedAtMs: Date.now(),
+        round: { ...state.round, phase: GAME_PHASES.STAND_ALONE_DEFENSE },
+      };
     case "COMPLETE_STAND_ALONE_DEFENSE":
       return { ...state, round: { ...state.round, phase: GAME_PHASES.STAND_ALONE_VERDICT } };
     case "RESOLVE_STAND_ALONE_VERDICT":
@@ -125,7 +139,11 @@ export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState 
     case "LOCK_JUDGE_WINNER":
       return lockJudgeWinner(state);
     case "START_NO_ESCAPE":
-      return { ...state, round: { ...state.round, phase: GAME_PHASES.NO_ESCAPE_DEFENSE } };
+      return {
+        ...state,
+        noEscapeDefenseStartedAtMs: state.noEscapeDefenseStartedAtMs ?? Date.now(),
+        round: { ...state.round, phase: GAME_PHASES.NO_ESCAPE_DEFENSE },
+      };
     case "COMPLETE_NO_ESCAPE_DEFENSE":
       return { ...state, round: { ...state.round, phase: GAME_PHASES.NO_ESCAPE_VERDICT } };
     case "RESOLVE_NO_ESCAPE_VERDICT":

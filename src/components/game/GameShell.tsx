@@ -3,12 +3,13 @@ import type { ReactNode } from "react";
 interface GameShellProps {
   children: ReactNode;
   footer?: ReactNode;
+  variant?: "game" | "onboarding";
 }
 
-export function GameShell({ children, footer }: GameShellProps) {
+export function GameShell({ children, footer, variant = "game" }: GameShellProps) {
   return (
     <div className="game-stage">
-      <div className="game-phone">
+      <div className={`game-phone ${variant === "onboarding" ? "onboarding-shell" : ""}`}>
         <div className="suit-bg" aria-hidden="true">
           ♠ ♥ ♣ ♦
         </div>

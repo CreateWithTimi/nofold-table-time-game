@@ -7,9 +7,9 @@ the table conversation stays central.
 
 ## Current Milestone
 
-M01 adds the first static playable UI on top of the M00 engineering foundation.
-It proves one complete local/mock round can move through the intended NO FOLD
-flow in a browser.
+M02 adds onboarding and pre-game room flow on top of the M00/M01 foundation.
+It proves a local user can move from welcome to room creation, lobby, pack
+selection, game ready, Judge selection, and Round 1 handoff.
 
 ## Stack
 
@@ -54,6 +54,36 @@ The demo controls sit outside the mobile game frame and let you:
 
 No backend, realtime service, authentication, Rive, sound, analytics, payments,
 or restaurant systems are included.
+
+## M02 Onboarding Demo
+
+Use the normal routes:
+
+- `/` welcome / QR entry
+- `/create` create a local table
+- `/join` join the local demo room
+- `/room/NF42` lobby, pack selection, game ready, and Judge selection
+- `/game/NF42` handoff into the existing M01 round UI
+
+Room state is stored in `localStorage` for M02 only. This avoids refresh crashes
+while keeping the implementation local and mock-only.
+
+The demo controls sit outside the phone frame. From `/`, create or reset a mock
+room. From `/room/NF42`, add/remove mock players, switch host/player view, and
+force lobby, pack selection, game ready, or Judge selection.
+
+## Future QR Architecture
+
+Production QR flow should be:
+
+1. Venue or table QR opens NO FOLD entry.
+2. A host creates a temporary room for that group.
+3. The temporary room gets its own room code and join QR.
+4. Friends join that temporary room.
+
+A permanent restaurant QR must not represent one permanent shared game room.
+Different groups scanning the same venue QR should never collide into one
+session.
 
 ## Future Realtime Plan
 
