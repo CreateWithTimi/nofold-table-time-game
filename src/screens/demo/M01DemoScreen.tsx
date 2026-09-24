@@ -51,9 +51,45 @@ export function M01DemoScreen() {
 export function M01RoundExperience({
   state,
   dispatch,
+  onPersistedLockResponse,
+  onPersistedStartDefense,
+  onPersistedCompleteDefense,
+  onPersistedLockDecision,
+  onPersistedFaceStandAloneTwist,
+  onPersistedCompleteStandAloneDefense,
+  onPersistedStandAloneVerdict,
+  onPersistedLockJudgeWinner,
+  onPersistedStartNoEscape,
+  onPersistedCompleteNoEscapeDefense,
+  onPersistedNoEscapeVerdict,
+  onPersistedNextRound,
+  hasPersistedNoEscapeTimerStarted,
+  responseLockError,
+  decisionLockError,
+  judgeWinnerError,
+  noEscapeError,
+  resultError,
 }: {
   state: ReturnType<typeof createM01DemoState>;
   dispatch: Dispatch<Parameters<typeof m01DemoReducer>[1]>;
+  onPersistedLockResponse?: () => void;
+  onPersistedStartDefense?: () => void;
+  onPersistedCompleteDefense?: () => void;
+  onPersistedLockDecision?: (decision: "CALL" | "FOLD") => void;
+  onPersistedFaceStandAloneTwist?: () => void;
+  onPersistedCompleteStandAloneDefense?: () => void;
+  onPersistedStandAloneVerdict?: (survived: boolean) => void;
+  onPersistedLockJudgeWinner?: (winningPlayerId: string | null) => void;
+  onPersistedStartNoEscape?: () => void;
+  onPersistedCompleteNoEscapeDefense?: () => void;
+  onPersistedNoEscapeVerdict?: (survived: boolean) => void;
+  onPersistedNextRound?: () => void;
+  hasPersistedNoEscapeTimerStarted?: boolean;
+  responseLockError?: string;
+  decisionLockError?: string;
+  judgeWinnerError?: string;
+  noEscapeError?: string;
+  resultError?: string;
 }) {
   const role = getViewerRole(state);
   const defenseRemainingSeconds = useCountdownFromStartedAt(20, state.defenseStartedAtMs);
@@ -66,19 +102,46 @@ export function M01RoundExperience({
       state.standAloneDefenseStartedAtMs !== null &&
       standAloneDefenseRemainingSeconds === 0
     ) {
+      if (onPersistedCompleteStandAloneDefense) {
+        onPersistedCompleteStandAloneDefense();
+        return;
+      }
+
       dispatch({ type: "COMPLETE_STAND_ALONE_DEFENSE" });
     }
-  }, [dispatch, standAloneDefenseRemainingSeconds, state.round.phase, state.standAloneDefenseStartedAtMs]);
+  }, [
+    dispatch,
+    onPersistedCompleteStandAloneDefense,
+    standAloneDefenseRemainingSeconds,
+    state.round.phase,
+    state.standAloneDefenseStartedAtMs,
+  ]);
 
   useEffect(() => {
+    const hasNoEscapeTimerStarted = onPersistedCompleteNoEscapeDefense
+      ? Boolean(hasPersistedNoEscapeTimerStarted)
+      : state.noEscapeDefenseStartedAtMs !== null;
+
     if (
       state.round.phase === GAME_PHASES.NO_ESCAPE_DEFENSE &&
-      state.noEscapeDefenseStartedAtMs !== null &&
+      hasNoEscapeTimerStarted &&
       noEscapeDefenseRemainingSeconds === 0
     ) {
+      if (onPersistedCompleteNoEscapeDefense) {
+        onPersistedCompleteNoEscapeDefense();
+        return;
+      }
+
       dispatch({ type: "COMPLETE_NO_ESCAPE_DEFENSE" });
     }
-  }, [dispatch, noEscapeDefenseRemainingSeconds, state.noEscapeDefenseStartedAtMs, state.round.phase]);
+  }, [
+    dispatch,
+    hasPersistedNoEscapeTimerStarted,
+    noEscapeDefenseRemainingSeconds,
+    onPersistedCompleteNoEscapeDefense,
+    state.noEscapeDefenseStartedAtMs,
+    state.round.phase,
+  ]);
 
   return (
     <GameShell footer={<FooterTagline />}>
@@ -89,6 +152,13 @@ export function M01RoundExperience({
             defenseRemainingSeconds,
             standAloneDefenseRemainingSeconds,
             noEscapeDefenseRemainingSeconds,
+            onPersistedStandAloneVerdict,
+            onPersistedLockJudgeWinner,
+            onPersistedNoEscapeVerdict,
+            judgeWinnerError,
+            noEscapeError,
+            onPersistedNextRound,
+            resultError,
           )
         : renderPlayerScreen(
             state,
@@ -96,6 +166,20 @@ export function M01RoundExperience({
             defenseRemainingSeconds,
             standAloneDefenseRemainingSeconds,
             noEscapeDefenseRemainingSeconds,
+            onPersistedLockResponse,
+            Boolean(onPersistedStartDefense),
+            onPersistedStartDefense,
+            onPersistedCompleteDefense,
+            onPersistedLockDecision,
+            onPersistedFaceStandAloneTwist,
+            onPersistedCompleteStandAloneDefense,
+            onPersistedStartNoEscape,
+            onPersistedCompleteNoEscapeDefense,
+            responseLockError,
+            decisionLockError,
+            noEscapeError,
+            onPersistedNextRound,
+            resultError,
           )}
     </GameShell>
   );
@@ -142,8 +226,23 @@ function renderPlayerScreen(
   defenseRemainingSeconds: number,
   standAloneDefenseRemainingSeconds: number,
   noEscapeDefenseRemainingSeconds: number,
+  onPersistedLockResponse?: () => void,
+  isPersistedDefense = false,
+  onPersistedStartDefense?: () => void,
+  onPersistedCompleteDefense?: () => void,
+  onPersistedLockDecision?: (decision: "CALL" | "FOLD") => void,
+  onPersistedFaceStandAloneTwist?: () => void,
+  onPersistedCompleteStandAloneDefense?: () => void,
+  onPersistedStartNoEscape?: () => void,
+  onPersistedCompleteNoEscapeDefense?: () => void,
+  responseLockError?: string,
+  decisionLockError?: string,
+  noEscapeError?: string,
+  onPersistedNextRound?: () => void,
+  resultError?: string,
 ) {
   const viewerRound = getViewerRoundState(state);
+  const currentDefenderId = state.round.defenseOrder[state.round.currentDefenderIndex];
 
   if (state.round.phase === GAME_PHASES.JUDGE_PICK) {
     return <PlayerJudgeDecidingScreen state={state} />;
@@ -155,14 +254,23 @@ function renderPlayerScreen(
 
   switch (state.round.phase) {
     case GAME_PHASES.RESPONSE_SELECTION:
+      if (isPersistedDefense && viewerRound.responseLocked) {
+        return <PlayerWaitingForResponseLocksScreen state={state} />;
+      }
+
       return (
         <ResponseSelectionScreen
           state={state}
           onSelectResponse={(responseId) => dispatch({ type: "SELECT_RESPONSE", responseId })}
-          onLockResponse={() => dispatch({ type: "LOCK_RESPONSE" })}
+          onLockResponse={onPersistedLockResponse ?? (() => dispatch({ type: "LOCK_RESPONSE" }))}
+          lockError={responseLockError}
         />
       );
     case GAME_PHASES.DEFENSE:
+      if (isPersistedDefense && state.viewerId !== currentDefenderId) {
+        return <PlayerWaitingForDefenseScreen state={state} defenderId={currentDefenderId} />;
+      }
+
       return (
         <DefenseScreen
           response={getSelectedResponse(state, state.viewerId)}
@@ -171,18 +279,35 @@ function renderPlayerScreen(
           score={getViewerPlayer(state).score}
           started={state.defenseStartedAtMs !== null}
           remainingSeconds={defenseRemainingSeconds}
-          onStart={() => dispatch({ type: "START_DEFENSE", startedAtMs: Date.now() })}
-          onComplete={() => dispatch({ type: "COMPLETE_DEFENSE" })}
+          onStart={onPersistedStartDefense ?? (() => dispatch({ type: "START_DEFENSE", startedAtMs: Date.now() }))}
+          onComplete={onPersistedCompleteDefense ?? (() => dispatch({ type: "COMPLETE_DEFENSE" }))}
         />
       );
     case GAME_PHASES.CALL_FOLD:
-      return <CallFoldScreen state={state} onDecision={(decision) => dispatch({ type: "LOCK_CALL_FOLD", decision })} />;
+      if (isPersistedDefense && viewerRound.decision) {
+        return <PlayerJudgeDecidingScreen state={state} />;
+      }
+
+      return (
+        <>
+          <CallFoldScreen
+            state={state}
+            onDecision={onPersistedLockDecision ?? ((decision) => dispatch({ type: "LOCK_CALL_FOLD", decision }))}
+          />
+          {decisionLockError ? <p className="form-error">{decisionLockError}</p> : null}
+        </>
+      );
     case GAME_PHASES.STAND_ALONE:
       if (state.round.standAlonePlayerId !== state.viewerId) {
         return <PlayerJudgeDecidingScreen state={state} />;
       }
 
-      return <StandAloneRevealScreen state={state} onFaceTwist={() => dispatch({ type: "FACE_STAND_ALONE_TWIST" })} />;
+      return (
+        <StandAloneRevealScreen
+          state={state}
+          onFaceTwist={onPersistedFaceStandAloneTwist ?? (() => dispatch({ type: "FACE_STAND_ALONE_TWIST" }))}
+        />
+      );
     case GAME_PHASES.STAND_ALONE_DEFENSE:
       if (state.round.standAlonePlayerId !== state.viewerId) {
         return <PlayerJudgeDecidingScreen state={state} />;
@@ -192,11 +317,19 @@ function renderPlayerScreen(
         <StandAloneDefenseScreen
           state={state}
           remainingSeconds={standAloneDefenseRemainingSeconds}
-          onComplete={() => dispatch({ type: "COMPLETE_STAND_ALONE_DEFENSE" })}
+          onComplete={onPersistedCompleteStandAloneDefense ?? (() => dispatch({ type: "COMPLETE_STAND_ALONE_DEFENSE" }))}
         />
       );
     case GAME_PHASES.COWARD_ROUND:
-      return <CowardRoundScreen state={state} onStartNoEscape={() => dispatch({ type: "START_NO_ESCAPE" })} />;
+      return (
+        <>
+          <CowardRoundScreen
+            state={state}
+            onStartNoEscape={onPersistedStartNoEscape ?? (() => dispatch({ type: "START_NO_ESCAPE" }))}
+          />
+          {noEscapeError ? <p className="form-error">{noEscapeError}</p> : null}
+        </>
+      );
     case GAME_PHASES.NO_ESCAPE_DEFENSE:
       if (state.round.noEscapePlayerId !== state.viewerId) {
         return <PlayerJudgeDecidingScreen state={state} />;
@@ -206,14 +339,77 @@ function renderPlayerScreen(
         <NoEscapeDefenseScreen
           state={state}
           remainingSeconds={noEscapeDefenseRemainingSeconds}
-          onComplete={() => dispatch({ type: "COMPLETE_NO_ESCAPE_DEFENSE" })}
+          onComplete={onPersistedCompleteNoEscapeDefense ?? (() => dispatch({ type: "COMPLETE_NO_ESCAPE_DEFENSE" }))}
         />
       );
     case GAME_PHASES.ROUND_RESULT:
-      return <RoundResultScreen state={state} onReset={(flow) => dispatch({ type: "RESET", flow })} />;
+      return (
+        <>
+          <RoundResultScreen state={state} onReset={onPersistedNextRound ? () => onPersistedNextRound() : ((flow) => dispatch({ type: "RESET", flow }))} />
+          {resultError ? <p className="form-error">{resultError}</p> : null}
+        </>
+      );
     default:
       return <PlayerWaitingForJudge state={state} selectedResponseId={viewerRound.selectedResponseId} />;
   }
+}
+
+function PlayerWaitingForResponseLocksScreen({ state }: { state: ReturnType<typeof createM01DemoState> }) {
+  const judgeName = getPlayerName(state, state.round.judgeId);
+  const ready = Object.values(state.round.playerStates).filter((row) => row.responseLocked).length;
+  const total = Object.values(state.round.playerStates).length;
+
+  return (
+    <div className="judge-deciding-state" aria-live="polite">
+      <GameHeader
+        roundNumber={state.round.roundNumber}
+        judgeName={judgeName}
+        score={getViewerPlayer(state).score}
+      />
+      <section className="judge-deciding-copy">
+        <h1>
+          Response <span>locked</span>
+        </h1>
+        <span className="red-rule" aria-hidden="true" />
+        <p>Waiting for the table...</p>
+        <p className="judge-deciding-subcopy">{ready} / {total} ready</p>
+      </section>
+      <div className="judge-waiting-indicator" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <p className="judge-waiting-label">Waiting for responses...</p>
+    </div>
+  );
+}
+
+function PlayerWaitingForDefenseScreen({ state, defenderId }: { state: ReturnType<typeof createM01DemoState>; defenderId?: string }) {
+  const defenderName = getPlayerName(state, defenderId ?? "");
+
+  return (
+    <div className="judge-deciding-state" aria-live="polite">
+      <GameHeader
+        roundNumber={state.round.roundNumber}
+        judgeName={getPlayerName(state, state.round.judgeId)}
+        score={getViewerPlayer(state).score}
+      />
+      <section className="judge-deciding-copy">
+        <h1>
+          {defenderName} is <span>defending</span>
+        </h1>
+        <span className="red-rule" aria-hidden="true" />
+        <p>Listen carefully.</p>
+        <p className="judge-deciding-subcopy">Your turn is coming.</p>
+      </section>
+      <div className="judge-waiting-indicator" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <p className="judge-waiting-label">Waiting for {defenderName}...</p>
+    </div>
+  );
 }
 
 function renderJudgeScreen(
@@ -222,6 +418,13 @@ function renderJudgeScreen(
   defenseRemainingSeconds: number,
   standAloneDefenseRemainingSeconds: number,
   noEscapeDefenseRemainingSeconds: number,
+  onPersistedStandAloneVerdict?: (survived: boolean) => void,
+  onPersistedLockJudgeWinner?: (winningPlayerId: string | null) => void,
+  onPersistedNoEscapeVerdict?: (survived: boolean) => void,
+  judgeWinnerError?: string,
+  noEscapeError?: string,
+  onPersistedNextRound?: () => void,
+  resultError?: string,
 ) {
   switch (state.round.phase) {
     case GAME_PHASES.RESPONSE_SELECTION:
@@ -235,7 +438,12 @@ function renderJudgeScreen(
         <JudgePickScreen
           state={state}
           onSelectWinner={(playerId) => dispatch({ type: "SELECT_JUDGE_WINNER", playerId })}
-          onLockWinner={() => dispatch({ type: "LOCK_JUDGE_WINNER" })}
+          onLockWinner={() =>
+            onPersistedLockJudgeWinner
+              ? onPersistedLockJudgeWinner(state.selectedJudgeWinnerId)
+              : dispatch({ type: "LOCK_JUDGE_WINNER" })
+          }
+          lockError={judgeWinnerError}
         />
       );
     case GAME_PHASES.STAND_ALONE:
@@ -250,18 +458,26 @@ function renderJudgeScreen(
       return (
         <StandAloneVerdictScreen
           state={state}
-          onVerdict={(survived) => dispatch({ type: "RESOLVE_STAND_ALONE_VERDICT", survived })}
+          onVerdict={onPersistedStandAloneVerdict ?? ((survived) => dispatch({ type: "RESOLVE_STAND_ALONE_VERDICT", survived }))}
         />
       );
     case GAME_PHASES.NO_ESCAPE_VERDICT:
       return (
-        <NoEscapeVerdictScreen
-          state={state}
-          onVerdict={(survived) => dispatch({ type: "RESOLVE_NO_ESCAPE_VERDICT", survived })}
-        />
+        <>
+          <NoEscapeVerdictScreen
+            state={state}
+            onVerdict={onPersistedNoEscapeVerdict ?? ((survived) => dispatch({ type: "RESOLVE_NO_ESCAPE_VERDICT", survived }))}
+          />
+          {noEscapeError ? <p className="form-error">{noEscapeError}</p> : null}
+        </>
       );
     case GAME_PHASES.ROUND_RESULT:
-      return <RoundResultScreen state={state} onReset={(flow) => dispatch({ type: "RESET", flow })} />;
+      return (
+        <>
+          <RoundResultScreen state={state} onReset={onPersistedNextRound ? () => onPersistedNextRound() : ((flow) => dispatch({ type: "RESET", flow }))} />
+          {resultError ? <p className="form-error">{resultError}</p> : null}
+        </>
+      );
     default:
       return <JudgeWaitingResponsesScreen state={state} />;
   }

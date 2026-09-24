@@ -8,12 +8,14 @@ interface ResponseSelectionScreenProps {
   state: DemoState;
   onSelectResponse: (responseId: string) => void;
   onLockResponse: () => void;
+  lockError?: string;
 }
 
 export function ResponseSelectionScreen({
   state,
   onSelectResponse,
   onLockResponse,
+  lockError,
 }: ResponseSelectionScreenProps) {
   const viewer = getViewerPlayer(state);
   const playerRound = getViewerRoundState(state);
@@ -143,9 +145,10 @@ export function ResponseSelectionScreen({
           <strong>{selectedIndex + 1} / {cards.length}</strong>
         </div>
       </div>
-      <PrimaryButton disabled={!playerRound.selectedResponseId} onClick={onLockResponse}>
-        Lock Response →
+      <PrimaryButton disabled={!playerRound.selectedResponseId || playerRound.responseLocked} onClick={onLockResponse}>
+        {playerRound.responseLocked ? "Response Locked" : "Lock Response →"}
       </PrimaryButton>
+      {lockError ? <p className="form-error">{lockError}</p> : null}
     </div>
   );
 }

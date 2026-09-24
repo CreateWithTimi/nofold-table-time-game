@@ -18,10 +18,13 @@ pressure engine.
 
 ## Prototype Boundaries
 
-Do not build realtime multiplayer, Supabase, authentication, restaurant accounts,
-subscriptions, payments, analytics dashboards, admin portals, AI content
-generation, Rive files, sound, push notifications, venue discovery, profiles,
-social feeds, production deployment, or the final content library during M00.
+M03.5 has a working persisted realtime multiplayer session: room/lobby,
+response-lock, defense, CALL/FOLD, branch completion, cumulative scoring,
+multi-round progression, final scoreboard, replay, and private persisted hands.
+Do not add authentication, restaurant accounts, subscriptions, payments,
+analytics dashboards, admin portals, AI content generation, Rive files, sound,
+push notifications, venue discovery, profiles, social feeds, or production
+deployment in this milestone.
 
 ## QR Architecture Note
 

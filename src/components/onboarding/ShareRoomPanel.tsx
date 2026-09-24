@@ -12,7 +12,7 @@ export function ShareRoomPanel({ code, onGoToLobby }: ShareRoomPanelProps) {
 
   async function copyCode() {
     if (!navigator.clipboard) {
-      setMessage("Copy is not available here. Tell them NF42.");
+      setMessage(`Copy is not available here. Tell them ${code}.`);
       return;
     }
 

@@ -1,7 +1,7 @@
 import { PrimaryButton } from "../../components/game/Buttons";
 import { GameHeader } from "../../components/game/GameHeader";
 import type { DemoFlow, DemoState } from "../../game/demo/m01Demo";
-import { getActiveTwist, getPlayerName, getSelectedResponse, getViewerPlayer, getViewerRole } from "../../game/demo/m01Demo";
+import { getActiveTwist, getPlayerName, getSelectedResponse, getViewerPlayer, getViewerRole, isSelectedResponseHydrated } from "../../game/demo/m01Demo";
 
 interface RoundResultScreenProps {
   state: DemoState;
@@ -22,6 +22,8 @@ export function RoundResultScreen({ state, onReset }: RoundResultScreenProps) {
     : null;
   const isNoEscapeResult =
     state.flow === "COWARD" &&
+    state.round.phase === "ROUND_RESULT" &&
+    state.round.noEscapePlayerId !== null &&
     noEscapeResult !== null &&
     ["NO ESCAPE SURVIVED", "NO ESCAPE CAUGHT"].includes(noEscapeResult.title);
 
@@ -53,6 +55,10 @@ function NormalRoundResult({ state, onReset }: RoundResultScreenProps) {
 
   if (isJudge) {
     const resolvedWinnerId = winnerId ?? state.outcome?.callerIds[0] ?? Object.keys(state.round.playerStates)[0];
+    if (!resolvedWinnerId || !isSelectedResponseHydrated(state, resolvedWinnerId)) {
+      return <ResultHydrationFallback state={state} />;
+    }
+
     const winnerName = getPlayerName(state, resolvedWinnerId);
     const winningResponse = getSelectedResponse(state, resolvedWinnerId);
 
@@ -87,6 +93,10 @@ function NormalRoundResult({ state, onReset }: RoundResultScreenProps) {
   const result = state.resultByPlayerId[state.viewerId];
   const won = state.round.winningPlayerId === state.viewerId;
   const folded = viewerRoundState?.decision === "FOLD";
+  if (!isSelectedResponseHydrated(state, state.viewerId)) {
+    return <ResultHydrationFallback state={state} />;
+  }
+
   const response = getSelectedResponse(state, state.viewerId);
   const variant = folded ? "folded" : won ? "won" : "lost";
   const headline =
@@ -146,6 +156,10 @@ function StandAloneResult({ state, onReset }: RoundResultScreenProps) {
   const viewer = getViewerPlayer(state);
   const result = state.resultByPlayerId[playerId] ?? state.resultByPlayerId[state.viewerId];
   const survived = result?.delta > 0;
+  if (!playerId || !isSelectedResponseHydrated(state, playerId)) {
+    return <ResultHydrationFallback state={state} />;
+  }
+
   const response = getSelectedResponse(state, playerId);
   const twist = getActiveTwist(state);
   const judgeName = getPlayerName(state, state.round.judgeId);
@@ -180,6 +194,28 @@ function StandAloneResult({ state, onReset }: RoundResultScreenProps) {
         <section className="stand-alone-result-twist" aria-label={`Twist: ${twist.text}`}>
           <span>Twist <span aria-hidden="true">👀</span></span>
           <strong>{twist.text}</strong>
+        </section>
+
+        <PrimaryButton onClick={() => onReset(state.flow)}>Next Round →</PrimaryButton>
+      </div>
+    );
+  }
+
+  const viewerRoundState = state.round.playerStates[state.viewerId];
+
+  if (state.viewerId !== playerId && viewerRoundState?.decision === "FOLD") {
+    return <NormalRoundResult state={state} onReset={onReset} />;
+  }
+
+  if (state.viewerId !== playerId) {
+    return (
+      <div className="normal-result-state is-player is-lost">
+        <GameHeader roundNumber={state.round.roundNumber} judgeName={judgeName} score={viewer.score} />
+
+        <section className="normal-result-copy" aria-labelledby="stand-alone-fallback-title">
+          <h1 id="stand-alone-fallback-title">Result unavailable</h1>
+          <span className="red-rule" aria-hidden="true" />
+          <p>This Stand Alone result does not match your player decision.</p>
         </section>
 
         <PrimaryButton onClick={() => onReset(state.flow)}>Next Round →</PrimaryButton>
@@ -236,6 +272,10 @@ function NoEscapeResult({ state, onReset }: RoundResultScreenProps) {
   const viewer = getViewerPlayer(state);
   const result = state.resultByPlayerId[playerId] ?? state.resultByPlayerId[state.viewerId];
   const survived = result?.title === "NO ESCAPE SURVIVED";
+  if (!playerId || !isSelectedResponseHydrated(state, playerId)) {
+    return <ResultHydrationFallback state={state} />;
+  }
+
   const response = getSelectedResponse(state, playerId);
   const judgeName = getPlayerName(state, state.round.judgeId);
   const playerName = getPlayerName(state, playerId);
@@ -275,6 +315,31 @@ function NoEscapeResult({ state, onReset }: RoundResultScreenProps) {
           <strong>No Extra Loss</strong>
           <p>Coward Round already took its hit.</p>
           <p>No Escape added pressure, not points.</p>
+        </section>
+
+        <PrimaryButton onClick={() => onReset(state.flow)}>Next Round →</PrimaryButton>
+      </div>
+    );
+  }
+
+  if (state.viewerId !== playerId) {
+    const viewerResult = state.resultByPlayerId[state.viewerId];
+
+    return (
+      <div className="normal-result-state is-player is-lost">
+        <GameHeader roundNumber={state.round.roundNumber} judgeName={judgeName} score={viewer.score} />
+
+        <section className="normal-result-copy" aria-labelledby="coward-result-title">
+          <h1 id="coward-result-title">
+            Coward <span>round <span aria-hidden="true">😭</span></span>
+          </h1>
+          <span className="red-rule" aria-hidden="true" />
+          <p>Everybody folded. The table remembered.</p>
+        </section>
+
+        <section className="normal-result-score">
+          <strong>{formatSigned(viewerResult?.delta ?? -2)}</strong>
+          <p>{viewerResult?.copy ?? "Coward Round already took its hit."}</p>
         </section>
 
         <PrimaryButton onClick={() => onReset(state.flow)}>Next Round →</PrimaryButton>
@@ -322,6 +387,21 @@ function NoEscapeResult({ state, onReset }: RoundResultScreenProps) {
       </section>
 
       <PrimaryButton onClick={() => onReset(state.flow)}>Next Round →</PrimaryButton>
+    </div>
+  );
+}
+
+function ResultHydrationFallback({ state }: { state: DemoState }) {
+  const viewer = getViewerPlayer(state);
+
+  return (
+    <div className="normal-result-state">
+      <GameHeader roundNumber={state.round.roundNumber} judgeName={getPlayerName(state, state.round.judgeId)} score={viewer.score} />
+      <section className="normal-result-copy" aria-live="polite" aria-labelledby="result-hydration-title">
+        <h1 id="result-hydration-title">Round complete</h1>
+        <span className="red-rule" aria-hidden="true" />
+        <p>Updating table...</p>
+      </section>
     </div>
   );
 }

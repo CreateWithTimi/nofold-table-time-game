@@ -6,16 +6,17 @@ import { GameShell } from "../../components/game/GameShell";
 import { SectionHeadline } from "../../components/game/SectionHeadline";
 import { NicknameField } from "../../components/onboarding/NicknameField";
 import { ShareRoomPanel } from "../../components/onboarding/ShareRoomPanel";
-import { createLocalRoom, setRoomStatus } from "../../room/localRoom";
 import type { RoomState } from "../../room/types";
+import { createRoom } from "../../services/rooms";
 
 export function CreateRoomScreen() {
   const navigate = useNavigate();
   const [nickname, setNickname] = useState("Timi");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [room, setRoom] = useState<RoomState | null>(null);
 
-  function createTable(event: FormEvent) {
+  async function createTable(event: FormEvent) {
     event.preventDefault();
     const trimmed = nickname.trim();
 
@@ -24,7 +25,16 @@ export function CreateRoomScreen() {
       return;
     }
 
-    setRoom(createLocalRoom(trimmed));
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      setRoom(await createRoom(trimmed));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create this table.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function goToLobby() {
@@ -32,8 +42,7 @@ export function CreateRoomScreen() {
       return;
     }
 
-    const nextRoom = setRoomStatus(room, "LOBBY");
-    navigate(`/room/${nextRoom.code}`);
+    navigate(`/room/${room.code}`);
   }
 
   return (
@@ -52,7 +61,9 @@ export function CreateRoomScreen() {
           </div>
           <NicknameField value={nickname} onChange={setNickname} />
           {error ? <p className="form-error">{error}</p> : null}
-          <PrimaryButton type="submit">Create Table →</PrimaryButton>
+          <PrimaryButton type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "Creating..." : "Create Table →"}
+          </PrimaryButton>
         </form>
       )}
     </GameShell>

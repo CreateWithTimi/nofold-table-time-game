@@ -6743,6 +6743,21 @@ body {
   color: var(--color-text);
 }
 
+.scoreboard-tertiary-action {
+  min-height: 2.75rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-muted);
+  box-shadow: none;
+}
+
+.scoreboard-tertiary-action:hover:not(:disabled),
+.scoreboard-tertiary-action:focus-visible:not(:disabled) {
+  color: var(--color-text);
+  border-color: rgb(255 255 255 / 0.16);
+  background: rgb(255 255 255 / 0.04);
+}
+
 .danger-action {
   border-color: var(--color-danger);
   background: transparent;

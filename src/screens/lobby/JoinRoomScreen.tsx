@@ -5,17 +5,19 @@ import { FooterTagline } from "../../components/game/FooterTagline";
 import { GameShell } from "../../components/game/GameShell";
 import { SectionHeadline } from "../../components/game/SectionHeadline";
 import { NicknameField } from "../../components/onboarding/NicknameField";
-import { joinLocalRoom } from "../../room/localRoom";
+import { joinRoom } from "../../services/rooms";
+import { normalizeRoomCode } from "../../services/rooms/roomCode";
 
 export function JoinRoomScreen() {
   const navigate = useNavigate();
   const [code, setCode] = useState("NF42");
   const [nickname, setNickname] = useState("Ada");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function joinTable(event: FormEvent) {
+  async function joinTable(event: FormEvent) {
     event.preventDefault();
-    const trimmedCode = code.trim().toUpperCase();
+    const trimmedCode = normalizeRoomCode(code);
     const trimmedNickname = nickname.trim();
 
     if (!trimmedCode || !trimmedNickname) {
@@ -23,14 +25,23 @@ export function JoinRoomScreen() {
       return;
     }
 
-    const room = joinLocalRoom(trimmedCode, trimmedNickname);
+    setIsSubmitting(true);
+    setError("");
 
-    if (!room) {
-      setError("Room not found in this local demo. Create NF42 first.");
-      return;
+    try {
+      const room = await joinRoom(trimmedCode, trimmedNickname);
+
+      if (!room) {
+        setError("Room not found.");
+        return;
+      }
+
+      navigate(`/room/${room.code}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not join this table.");
+    } finally {
+      setIsSubmitting(false);
     }
-
-    navigate(`/room/${room.code}`);
   }
 
   return (
@@ -47,12 +58,14 @@ export function JoinRoomScreen() {
             maxLength={6}
             value={code}
             placeholder="NF42"
-            onChange={(event) => setCode(event.target.value.toUpperCase())}
+            onChange={(event) => setCode(normalizeRoomCode(event.target.value))}
           />
         </label>
         <NicknameField value={nickname} placeholder="Ada" onChange={setNickname} />
         {error ? <p className="form-error">{error}</p> : null}
-        <PrimaryButton type="submit">Join Table →</PrimaryButton>
+        <PrimaryButton type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Joining..." : "Join Table →"}
+        </PrimaryButton>
         <div className="or-rule">or</div>
         <SecondaryButton disabled>Scan a room QR code</SecondaryButton>
       </form>

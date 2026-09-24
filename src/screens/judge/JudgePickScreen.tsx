@@ -6,9 +6,10 @@ interface JudgePickScreenProps {
   state: DemoState;
   onSelectWinner: (playerId: string) => void;
   onLockWinner: () => void;
+  lockError?: string;
 }
 
-export function JudgePickScreen({ state, onSelectWinner, onLockWinner }: JudgePickScreenProps) {
+export function JudgePickScreen({ state, onSelectWinner, onLockWinner, lockError }: JudgePickScreenProps) {
   const callers = getCallers(state);
 
   return (
@@ -56,6 +57,7 @@ export function JudgePickScreen({ state, onSelectWinner, onLockWinner }: JudgePi
         <PrimaryButton disabled={!state.selectedJudgeWinnerId} onClick={onLockWinner}>
           Lock Winner →
         </PrimaryButton>
+        {lockError ? <p className="form-error">{lockError}</p> : null}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import type { ResponseCard, Scenario, Twist } from "../types/content";
 import type { RoundState } from "../types/game";
 import type { Player } from "../types/player";
 import { tableTroubleScenarios } from "../../data/packs/table-trouble";
+import type { RoomState } from "../../room/types";
 
 export type DemoFlow = "NORMAL" | "STAND_ALONE" | "COWARD";
 export type DemoViewRole = "PLAYER" | "JUDGE";
@@ -40,8 +41,48 @@ export interface DemoState {
 export type DemoAction =
   | { type: "VIEW_AS"; playerId: string }
   | { type: "RESET"; flow: DemoFlow }
+  | {
+      type: "SYNC_SESSION_CONTEXT";
+      roundNumber: number;
+      judgeId: string;
+      scenarioId: string | null;
+      scoresByPlayerId: Record<string, number>;
+    }
   | { type: "SELECT_RESPONSE"; responseId: string }
+  | { type: "SYNC_OWN_HAND"; playerId: string; responseIds: string[] }
   | { type: "LOCK_RESPONSE" }
+  | {
+      type: "SYNC_RESPONSE_LOCKS";
+      lockedPlayerIds: string[];
+      ownResponse?: { playerId: string; selectedResponseId: string | null } | null;
+    }
+  | {
+      type: "SYNC_PERSISTED_ROUND";
+      phase: GamePhase;
+      defenseOrder: string[];
+      currentDefenderIndex: number;
+      defenseStartedAtMs: number | null;
+      standAloneDefenseStartedAtMs?: number | null;
+      noEscapeDefenseStartedAtMs?: number | null;
+      callerIds?: string[] | null;
+      standAlonePlayerId?: string | null;
+      noEscapePlayerId?: string | null;
+      noEscapeScenarioId?: string | null;
+      noEscapeResponseId?: string | null;
+      scenarioId?: string | null;
+      activeTwistId?: string | null;
+      flow?: DemoFlow | null;
+      verdict?: "SURVIVED" | "CAUGHT" | null;
+      verdictPlayerId?: string | null;
+      winningPlayerId?: string | null;
+      publicResponses?: Array<{ playerId: string; selectedResponseId: string | null }>;
+      decisions?: Array<{ playerId: string; decision: "CALL" | "FOLD" }>;
+    }
+  | {
+      type: "SYNC_DECISION_LOCKS";
+      lockedPlayerIds: string[];
+      ownDecision?: { playerId: string; decision: "CALL" | "FOLD" } | null;
+    }
   | { type: "START_DEFENSE"; startedAtMs: number }
   | { type: "COMPLETE_DEFENSE" }
   | { type: "LOCK_CALL_FOLD"; decision: "CALL" | "FOLD" }
@@ -62,21 +103,32 @@ export const DEMO_PLAYERS: Player[] = [
 ];
 
 const JUDGE_ID = "ada";
-const ACTIVE_PLAYER_IDS = DEMO_PLAYERS.filter((player) => player.id !== JUDGE_ID).map(
-  (player) => player.id,
-);
 
-export function createM01DemoState(flow: DemoFlow = "NORMAL"): DemoState {
+interface CreateM01DemoStateOptions {
+  players?: Player[];
+  judgeId?: string;
+  viewerId?: string;
+  roundNumber?: number;
+}
+
+export function createM01DemoState(
+  flow: DemoFlow = "NORMAL",
+  options: CreateM01DemoStateOptions = {},
+): DemoState {
   const scenario = tableTroubleScenarios[0];
+  const players = options.players ?? DEMO_PLAYERS;
+  const judgeId = options.judgeId ?? JUDGE_ID;
   const round = createRound({
-    roundNumber: 1,
-    judgeId: JUDGE_ID,
-    players: DEMO_PLAYERS,
+    roundNumber: options.roundNumber ?? 1,
+    judgeId,
+    players,
     scenario,
   });
+  const fallbackViewerId =
+    players.find((player) => player.id !== judgeId)?.id ?? players[0]?.id ?? DEMO_PLAYERS[0].id;
 
   return {
-    players: DEMO_PLAYERS,
+    players,
     round: {
       ...round,
       phase: GAME_PHASES.RESPONSE_SELECTION,
@@ -84,7 +136,7 @@ export function createM01DemoState(flow: DemoFlow = "NORMAL"): DemoState {
     },
     scenario,
     noEscapeScenario: tableTroubleScenarios[1],
-    viewerId: "timi",
+    viewerId: options.viewerId ?? fallbackViewerId,
     flow,
     defenseStartedAtMs: null,
     standAloneDefenseStartedAtMs: null,
@@ -95,16 +147,36 @@ export function createM01DemoState(flow: DemoFlow = "NORMAL"): DemoState {
   };
 }
 
+export function createM01DemoStateFromRoom(room: RoomState): DemoState {
+  const players = room.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    score: 0,
+    isHost: player.isHost,
+  }));
+
+  return createM01DemoState("NORMAL", {
+    players,
+    judgeId: room.judgeId ?? players[0]?.id,
+    viewerId: room.currentViewerId || players[0]?.id,
+    roundNumber: room.roundNumber,
+  });
+}
+
 export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState {
   switch (action.type) {
     case "VIEW_AS":
       return { ...state, viewerId: action.playerId };
     case "RESET":
       return createM01DemoState(action.flow);
+    case "SYNC_SESSION_CONTEXT":
+      return syncSessionContext(state, action);
     case "SELECT_RESPONSE":
       return updateViewerRoundState(state, {
         selectedResponseId: action.responseId,
       });
+    case "SYNC_OWN_HAND":
+      return syncOwnHand(state, action.playerId, action.responseIds);
     case "LOCK_RESPONSE":
       return {
         ...state,
@@ -115,6 +187,12 @@ export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState 
           playerStates: lockAllDemoResponses(state),
         },
       };
+    case "SYNC_RESPONSE_LOCKS":
+      return syncResponseLocks(state, action.lockedPlayerIds, action.ownResponse);
+    case "SYNC_PERSISTED_ROUND":
+      return syncPersistedRound(state, action);
+    case "SYNC_DECISION_LOCKS":
+      return syncDecisionLocks(state, action.lockedPlayerIds, action.ownDecision);
     case "START_DEFENSE":
       return { ...state, defenseStartedAtMs: state.defenseStartedAtMs ?? action.startedAtMs };
     case "COMPLETE_DEFENSE":
@@ -153,6 +231,346 @@ export function m01DemoReducer(state: DemoState, action: DemoAction): DemoState 
   }
 }
 
+function syncPersistedRound(
+  state: DemoState,
+  action: Extract<DemoAction, { type: "SYNC_PERSISTED_ROUND" }>,
+): DemoState {
+  const publicResponseMap = new Map(
+    (action.publicResponses ?? []).map((response) => [response.playerId, response.selectedResponseId]),
+  );
+  const nextNoEscapeScenario =
+    tableTroubleScenarios.find((scenario) => scenario.id === action.noEscapeScenarioId) ??
+    state.noEscapeScenario;
+  const noEscapeResponse = nextNoEscapeScenario.responses.find(
+    (response) => response.id === action.noEscapeResponseId,
+  );
+  const nextScenario =
+    tableTroubleScenarios.find((scenario) => scenario.id === action.scenarioId) ??
+    state.scenario;
+  const responseCatalog = new Map(
+    [...nextScenario.responses, ...nextNoEscapeScenario.responses].map((response) => [response.id, response]),
+  );
+
+  return {
+    ...state,
+    flow: action.flow ?? state.flow,
+    scenario: nextScenario,
+    noEscapeScenario: nextNoEscapeScenario,
+    defenseStartedAtMs: action.defenseStartedAtMs,
+    standAloneDefenseStartedAtMs:
+      action.standAloneDefenseStartedAtMs === undefined
+        ? state.standAloneDefenseStartedAtMs
+        : action.standAloneDefenseStartedAtMs,
+    noEscapeDefenseStartedAtMs:
+      action.noEscapeDefenseStartedAtMs === undefined
+        ? state.noEscapeDefenseStartedAtMs
+        : action.noEscapeDefenseStartedAtMs,
+    resultByPlayerId: buildPersistedResultByPlayerId(state, action),
+    round: {
+      ...state.round,
+      scenarioId: nextScenario.id,
+      phase: action.phase,
+      defenseOrder: action.defenseOrder,
+      currentDefenderIndex: action.currentDefenderIndex,
+      winningPlayerId: action.winningPlayerId ?? state.round.winningPlayerId,
+      standAlonePlayerId: action.standAlonePlayerId ?? state.round.standAlonePlayerId,
+      noEscapePlayerId: action.noEscapePlayerId ?? state.round.noEscapePlayerId,
+      activeTwistId: action.activeTwistId ?? state.round.activeTwistId,
+      playerStates: Object.fromEntries(
+        Object.entries(state.round.playerStates).map(([playerId, playerState]) => {
+          const publicResponseId = publicResponseMap.get(playerId) ?? null;
+          const publicResponse = publicResponseId ? responseCatalog.get(publicResponseId) : null;
+          const noEscapeCard =
+            action.noEscapePlayerId === playerId && noEscapeResponse ? noEscapeResponse : null;
+          const cardsToEnsure = [publicResponse, noEscapeCard].filter(
+            (card): card is ResponseCard => Boolean(card),
+          );
+          const nextHand = cardsToEnsure.reduce(
+            (hand, card) =>
+              hand.some((existingCard) => existingCard.id === card.id)
+                ? hand
+                : [card, ...hand],
+            playerState.hand,
+          );
+
+          return [
+            playerId,
+            {
+              ...playerState,
+              selectedResponseId: publicResponseMap.has(playerId)
+                ? publicResponseMap.get(playerId) ?? playerState.selectedResponseId
+                : action.noEscapePlayerId === playerId && action.noEscapeResponseId
+                  ? action.noEscapeResponseId
+                  : playerState.selectedResponseId,
+              hand: nextHand,
+              decision: action.callerIds
+                ? action.callerIds.includes(playerId)
+                  ? "CALL"
+                  : playerState.decision
+                    ? playerState.decision
+                    : "FOLD"
+                : playerState.decision,
+            },
+          ];
+        }),
+      ),
+    },
+  };
+}
+
+function syncSessionContext(
+  state: DemoState,
+  action: Extract<DemoAction, { type: "SYNC_SESSION_CONTEXT" }>,
+): DemoState {
+  const scenario =
+    tableTroubleScenarios.find((candidate) => candidate.id === action.scenarioId) ??
+    state.scenario;
+  const players = state.players.map((player) => ({
+    ...player,
+    score: action.scoresByPlayerId[player.id] ?? player.score,
+  }));
+  const sameRound =
+    state.round.roundNumber === action.roundNumber &&
+    state.round.judgeId === action.judgeId &&
+    state.round.scenarioId === scenario.id;
+
+  if (sameRound) {
+    return { ...state, players, scenario };
+  }
+
+  const round = createRound({
+    roundNumber: action.roundNumber,
+    judgeId: action.judgeId,
+    players,
+    scenario,
+  });
+
+  return {
+    ...state,
+    players,
+    scenario,
+    flow: "NORMAL",
+    defenseStartedAtMs: null,
+    standAloneDefenseStartedAtMs: null,
+    noEscapeDefenseStartedAtMs: null,
+    outcome: null,
+    selectedJudgeWinnerId: null,
+    resultByPlayerId: {},
+    round: {
+      ...round,
+      phase: GAME_PHASES.RESPONSE_SELECTION,
+      playerStates: assignDemoResponses(round, scenario),
+    },
+  };
+}
+
+function buildPersistedResultByPlayerId(
+  state: DemoState,
+  action: Extract<DemoAction, { type: "SYNC_PERSISTED_ROUND" }>,
+) {
+  if (
+    action.phase === GAME_PHASES.ROUND_RESULT &&
+    (action.flow ?? state.flow) === "NORMAL" &&
+    action.winningPlayerId
+  ) {
+    const decisions =
+      action.decisions ??
+      Object.values(state.round.playerStates)
+        .filter((playerState): playerState is typeof playerState & { decision: "CALL" | "FOLD" } =>
+          playerState.decision === "CALL" || playerState.decision === "FOLD",
+        )
+        .map((playerState) => ({ playerId: playerState.playerId, decision: playerState.decision }));
+
+    return {
+      ...state.resultByPlayerId,
+      ...Object.fromEntries(
+        decisions.map(({ playerId, decision }) => {
+          if (playerId === action.winningPlayerId) {
+            return [
+              playerId,
+              { title: "YOU SURVIVED", delta: SCORING.CALL_WIN, copy: "The Judge bought it." },
+            ];
+          }
+
+          if (decision === "CALL") {
+            return [
+              playerId,
+              { title: "BAD CALL", delta: SCORING.CALL_LOSE, copy: "You stood on it and lost the table." },
+            ];
+          }
+
+          return [
+            playerId,
+            { title: "YOU FOLDED", delta: SCORING.FOLD, copy: "You left the pressure on the table." },
+          ];
+        }),
+      ),
+    };
+  }
+
+  if (
+    action.phase === GAME_PHASES.ROUND_RESULT &&
+    (action.flow ?? state.flow) === "COWARD" &&
+    action.noEscapePlayerId &&
+    action.verdict &&
+    action.verdictPlayerId
+  ) {
+    const survived = action.verdict === "SURVIVED";
+
+    return {
+      ...state.resultByPlayerId,
+      ...Object.fromEntries(
+        getActivePlayerIds(state).map((playerId) => [
+          playerId,
+          playerId === action.noEscapePlayerId
+            ? {
+                title: survived ? "NO ESCAPE SURVIVED" : "NO ESCAPE CAUGHT",
+                delta: SCORING.EVERYBODY_FOLDS,
+                copy: "No Escape added spectacle only. The -2 Coward Round penalty was already applied.",
+              }
+            : {
+                title: "COWARD ROUND",
+                delta: SCORING.EVERYBODY_FOLDS,
+                copy: "Everybody folded. The table took its hit before No Escape began.",
+              },
+        ]),
+      ),
+    };
+  }
+
+  if (
+    action.phase !== GAME_PHASES.ROUND_RESULT ||
+    (action.flow ?? state.flow) !== "STAND_ALONE" ||
+    !action.verdict ||
+    !action.verdictPlayerId
+  ) {
+    return state.resultByPlayerId;
+  }
+
+  const survived = action.verdict === "SURVIVED";
+  const decisions =
+    action.decisions ??
+    Object.values(state.round.playerStates)
+      .filter((playerState): playerState is typeof playerState & { decision: "CALL" | "FOLD" } =>
+        playerState.decision === "CALL" || playerState.decision === "FOLD",
+      )
+      .map((playerState) => ({ playerId: playerState.playerId, decision: playerState.decision }));
+  const foldedResults = Object.fromEntries(
+    decisions
+      .filter(({ playerId, decision }) => playerId !== action.verdictPlayerId && decision === "FOLD")
+      .map(({ playerId }) => [
+        playerId,
+        {
+          title: "YOU FOLDED",
+          delta: SCORING.FOLD,
+          copy: "You got out before the table decided.",
+        },
+      ]),
+  );
+
+  return {
+    ...state.resultByPlayerId,
+    ...foldedResults,
+    [action.verdictPlayerId]: {
+      title: survived ? "STOOD ALONE" : "CAUGHT",
+      delta: survived ? SCORING.STAND_ALONE_SURVIVE : SCORING.STAND_ALONE_FAIL,
+      copy: survived ? "You stood alone and sold it." : "The twist caught the bluff.",
+    },
+  };
+}
+
+function syncDecisionLocks(
+  state: DemoState,
+  lockedPlayerIds: string[],
+  ownDecision?: { playerId: string; decision: "CALL" | "FOLD" } | null,
+): DemoState {
+  const lockedSet = new Set(lockedPlayerIds);
+
+  return {
+    ...state,
+    round: {
+      ...state.round,
+      playerStates: Object.fromEntries(
+        Object.entries(state.round.playerStates).map(([playerId, playerState]) => [
+          playerId,
+          {
+            ...playerState,
+            decision:
+              ownDecision?.playerId === playerId
+                ? ownDecision.decision
+                : lockedSet.has(playerId)
+                  ? playerState.decision ?? "FOLD"
+                  : null,
+          },
+        ]),
+      ),
+    },
+  };
+}
+
+function syncOwnHand(state: DemoState, playerId: string, responseIds: string[]): DemoState {
+  const playerState = state.round.playerStates[playerId];
+
+  if (!playerState) {
+    return state;
+  }
+
+  const hand = responseIds
+    .map((responseId) => state.scenario.responses.find((response) => response.id === responseId))
+    .filter((response): response is ResponseCard => Boolean(response));
+
+  if (hand.length === 0) {
+    return state;
+  }
+
+  const selectedResponseId = playerState.selectedResponseId && hand.some((card) => card.id === playerState.selectedResponseId)
+    ? playerState.selectedResponseId
+    : null;
+
+  return {
+    ...state,
+    round: {
+      ...state.round,
+      playerStates: {
+        ...state.round.playerStates,
+        [playerId]: {
+          ...playerState,
+          hand,
+          selectedResponseId,
+        },
+      },
+    },
+  };
+}
+
+function syncResponseLocks(
+  state: DemoState,
+  lockedPlayerIds: string[],
+  ownResponse?: { playerId: string; selectedResponseId: string | null } | null,
+): DemoState {
+  const lockedSet = new Set(lockedPlayerIds);
+
+  return {
+    ...state,
+    round: {
+      ...state.round,
+      playerStates: Object.fromEntries(
+        Object.entries(state.round.playerStates).map(([playerId, playerState]) => [
+          playerId,
+          {
+            ...playerState,
+            selectedResponseId:
+              ownResponse?.playerId === playerId
+                ? ownResponse.selectedResponseId
+                : playerState.selectedResponseId,
+            responseLocked: lockedSet.has(playerId),
+          },
+        ]),
+      ),
+    },
+  };
+}
+
 export function getViewerRole(state: DemoState): DemoViewRole {
   return state.viewerId === state.round.judgeId ? "JUDGE" : "PLAYER";
 }
@@ -169,8 +587,41 @@ export function getViewerRoundState(state: DemoState) {
   return state.round.playerStates[state.viewerId] ?? Object.values(state.round.playerStates)[0];
 }
 
+const HYDRATING_RESPONSE: ResponseCard = {
+  id: "hydrating-response",
+  text: "Updating table...",
+  tone: "SENSIBLE",
+};
+
+export function isSelectedResponseHydrated(state: DemoState, playerId: string): boolean {
+  const playerState = state.round.playerStates[playerId];
+
+  if (playerState == null || Array.isArray(playerState.hand) === false || playerState.hand.length === 0) {
+    return false;
+  }
+
+  if (!playerState.selectedResponseId) {
+    return true;
+  }
+
+  return playerState.hand.some((card) => card.id === playerState.selectedResponseId);
+}
+
 export function getSelectedResponse(state: DemoState, playerId: string): ResponseCard {
   const playerState = state.round.playerStates[playerId];
+
+  if (playerState == null || Array.isArray(playerState.hand) === false || playerState.hand.length === 0) {
+    console.info("NO FOLD selected response not hydrated", {
+      playerId,
+      roundNumber: state.round.roundNumber,
+      phase: state.round.phase,
+      hasPlayerState: Boolean(playerState),
+      hasHand: Boolean(playerState?.hand),
+      handLength: playerState?.hand?.length ?? 0,
+    });
+    return HYDRATING_RESPONSE;
+  }
+
   return (
     playerState.hand.find((card) => card.id === playerState.selectedResponseId) ??
     playerState.hand[0]
@@ -282,18 +733,19 @@ function resolveDemoCallFold(state: DemoState, viewerDecision: "CALL" | "FOLD"):
     };
   }
 
-  const noEscapePlayerId = ACTIVE_PLAYER_IDS[0];
+  const activePlayerIds = getActivePlayerIds(state);
+  const noEscapePlayerId = activePlayerIds[0];
   return {
     ...state,
     outcome,
-    players: scoreEverybodyFolds(state.players, ACTIVE_PLAYER_IDS),
+    players: scoreEverybodyFolds(state.players, activePlayerIds),
     round: {
       ...round,
       phase: GAME_PHASES.COWARD_ROUND,
       noEscapePlayerId,
     },
     resultByPlayerId: Object.fromEntries(
-      ACTIVE_PLAYER_IDS.map((playerId) => [
+      activePlayerIds.map((playerId) => [
         playerId,
         {
           title: "COWARD ROUND",
@@ -309,22 +761,37 @@ function buildDemoDecisions(
   state: DemoState,
   viewerDecision: "CALL" | "FOLD",
 ): Record<string, "CALL" | "FOLD"> {
+  const activePlayerIds = getActivePlayerIds(state);
+
   if (state.flow === "COWARD") {
-    return Object.fromEntries(ACTIVE_PLAYER_IDS.map((playerId) => [playerId, "FOLD"]));
+    return Object.fromEntries(activePlayerIds.map((playerId) => [playerId, "FOLD"]));
   }
 
   if (state.flow === "STAND_ALONE") {
-    const standAlonePlayerId = viewerDecision === "CALL" ? state.viewerId : "zara";
+    const standAlonePlayerId =
+      viewerDecision === "CALL"
+        ? state.viewerId
+        : activePlayerIds.find((playerId) => playerId !== state.viewerId) ?? activePlayerIds[0];
     return Object.fromEntries(
-      ACTIVE_PLAYER_IDS.map((playerId) => [playerId, playerId === standAlonePlayerId ? "CALL" : "FOLD"]),
+      activePlayerIds.map((playerId) => [playerId, playerId === standAlonePlayerId ? "CALL" : "FOLD"]),
     );
   }
 
+  const callerFallback = activePlayerIds.find((playerId) => playerId !== state.viewerId) ?? activePlayerIds[0];
+
   if (viewerDecision === "CALL") {
-    return { timi: "CALL", zara: "CALL", miko: "FOLD" };
+    return Object.fromEntries(
+      activePlayerIds.map((playerId) => [
+        playerId,
+        playerId === state.viewerId || playerId === callerFallback ? "CALL" : "FOLD",
+      ]),
+    );
   }
 
-  return { timi: "FOLD", zara: "CALL", miko: "CALL" };
+  const callers = activePlayerIds.filter((playerId) => playerId !== state.viewerId).slice(0, 2);
+  return Object.fromEntries(
+    activePlayerIds.map((playerId) => [playerId, callers.includes(playerId) ? "CALL" : "FOLD"]),
+  );
 }
 
 function lockJudgeWinner(state: DemoState): DemoState {
@@ -346,7 +813,7 @@ function lockJudgeWinner(state: DemoState): DemoState {
     players,
     round: { ...state.round, phase: GAME_PHASES.ROUND_RESULT, winningPlayerId: winnerId },
     resultByPlayerId: Object.fromEntries(
-      ACTIVE_PLAYER_IDS.map((playerId) => {
+      getActivePlayerIds(state).map((playerId) => {
         if (state.outcome?.folderIds.includes(playerId)) {
           return [
             playerId,
@@ -366,6 +833,10 @@ function lockJudgeWinner(state: DemoState): DemoState {
       }),
     ),
   };
+}
+
+function getActivePlayerIds(state: DemoState): string[] {
+  return state.players.filter((player) => player.id !== state.round.judgeId).map((player) => player.id);
 }
 
 function resolveStandAloneVerdict(state: DemoState, survived: boolean): DemoState {
