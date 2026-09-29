@@ -917,7 +917,7 @@ function PersistedRoomGame({ room }: { room: RoomState }) {
 
     setScoreboardAction("PLAY_AGAIN");
     setScoreboardActionError("");
-    return gameSession.restart(room.currentViewerId)
+    return gameSession.restart(room.currentViewerId, room.hostPlayerId)
       .catch((caught) => {
         console.error("NO FOLD restart session failed", {
           roomId: room.persistedRoomId,
@@ -1099,7 +1099,7 @@ function FinalScoreboard({
           ))}
         </section>
 
-        <section className="normal-result-actions" aria-label="Final scoreboard actions">
+        <section className="normal-result-actions scoreboard-actions" aria-label="Final scoreboard actions">
           <PrimaryButton disabled={!canPlayAgain || Boolean(actionInFlight)} onClick={onPlayAgain}>
             {actionInFlight === "PLAY_AGAIN" ? "Starting..." : "Play Again →"}
           </PrimaryButton>

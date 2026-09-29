@@ -177,12 +177,13 @@ export function useGameSession({
     await refetchCanonical();
   }, [players, refetchCanonical, roomCode, roomId, session?.id]);
 
-  const restart = useCallback(async (currentPlayerId: string) => {
+  const restart = useCallback(async (currentPlayerId: string, hostPlayerId?: string) => {
     if (!roomId || !session) {
       return null;
     }
 
     const nextSession = await restartSession({
+      hostPlayerId,
       sessionId: session.id,
       roomId,
       roomCode,

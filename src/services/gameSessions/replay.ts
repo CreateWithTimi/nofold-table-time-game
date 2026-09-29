@@ -10,11 +10,20 @@ interface ReplayParams {
   roomCode: string;
   players: RoomPlayer[];
   currentPlayerId: string;
+  hostPlayerId?: string;
   initialJudgeId: string;
   totalRounds?: number;
 }
 
 async function replaceSession(params: ReplayParams, choosePack: boolean) {
+  const metadata = {
+    roomId: params.roomId,
+    finishedSessionId: params.sessionId,
+    hostPlayerId: params.hostPlayerId ?? null,
+    currentPlayerId: params.currentPlayerId,
+    choosePack,
+  };
+  console.info("NO FOLD session replacement attempt", metadata);
   const { data, error } = await requireSupabase().rpc("replace_finished_session", {
     p_room_id: params.roomId,
     p_expected_session_id: params.sessionId,
@@ -25,7 +34,7 @@ async function replaceSession(params: ReplayParams, choosePack: boolean) {
   }).single();
   if (error) {
     console.error("NO FOLD session replacement failed", {
-      roomId: params.roomId, sessionId: params.sessionId, error: describeSupabaseError(error),
+      ...metadata, error: describeSupabaseError(error),
     });
     throw createSupabaseServiceError("Could not restart the table", error);
   }
